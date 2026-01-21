@@ -1,0 +1,218 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image-Key Encryption Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s ease;
+        }
+        .drop-zone.active {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen py-12 px-4">
+    <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
+        <!-- Header -->
+        <div class="bg-indigo-600 p-6 text-white text-center">
+            <h1 class="text-2xl font-bold">Image-Key Crypto</h1>
+            <p class="text-indigo-100 text-sm mt-1">画像を「究極の暗号鍵」として使用するセキュアツール</p>
+        </div>
+
+        <div class="p-8 space-y-8">
+            <!-- Image Upload Section -->
+            <section class="space-y-4">
+                <h2 class="text-lg font-semibold text-gray-700 flex items-center">
+                    <span class="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mr-2">1</span>
+                    鍵となる画像を選択 (PNGのみ, 最大2MB)
+                </h2>
+                <div id="dropZone" class="drop-zone p-10 rounded-xl text-center cursor-pointer">
+                    <input type="file" id="fileInput" accept="image/png" class="hidden">
+                    <div id="fileStatus" class="text-gray-500">
+                        <svg class="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        <p>クリックしてPNGファイルを選択、またはドラッグ＆ドロップ</p>
+                    </div>
+                    <div id="previewContainer" class="hidden mt-2">
+                        <img id="imagePreview" class="mx-auto h-32 w-auto rounded border shadow-sm mb-2">
+                        <p id="fileName" class="text-sm font-medium text-indigo-600"></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Text Input/Output Section -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Encryption -->
+                <div class="space-y-4">
+                    <h2 class="text-lg font-semibold text-gray-700 flex items-center">
+                        <span class="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center mr-2">2</span>
+                        暗号化
+                    </h2>
+                    <textarea id="plainText" rows="4" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="暗号化したい文字列を入力..."></textarea>
+                    <button id="encryptBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">
+                        画像を鍵にして暗号化
+                    </button>
+                </div>
+
+                <!-- Decryption -->
+                <div class="space-y-4">
+                    <h2 class="text-lg font-semibold text-gray-700 flex items-center">
+                        <span class="w-8 h-8 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mr-2">3</span>
+                        復号
+                    </h2>
+                    <textarea id="cipherText" rows="4" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="暗号化されたデータ（Base64）を入力..."></textarea>
+                    <button id="decryptBtn" class="w-full bg-slate-700 hover:bg-slate-800 text-white font-bold py-2 px-4 rounded-lg transition">
+                        画像を使用して復号
+                    </button>
+                </div>
+            </div>
+
+            <!-- Message Area -->
+            <div id="messageBox" class="hidden p-4 rounded-lg text-sm font-medium text-center"></div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileStatus = document.getElementById('fileStatus');
+        const previewContainer = document.getElementById('previewContainer');
+        const imagePreview = document.getElementById('imagePreview');
+        const fileNameDisp = document.getElementById('fileName');
+        const messageBox = document.getElementById('messageBox');
+
+        let selectedFileArrayBuffer = null;
+
+        // --- UI Logic ---
+        dropZone.onclick = () => fileInput.click();
+        
+        dropZone.ondragover = (e) => {
+            e.preventDefault();
+            dropZone.classList.add('active');
+        };
+        
+        dropZone.ondragleave = () => dropZone.classList.remove('active');
+        
+        dropZone.ondrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('active');
+            handleFiles(e.dataTransfer.files);
+        };
+
+        fileInput.onchange = (e) => handleFiles(e.target.files);
+
+        function showMessage(text, isError = false) {
+            messageBox.textContent = text;
+            messageBox.className = `p-4 rounded-lg text-sm font-medium text-center ${isError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`;
+            messageBox.classList.remove('hidden');
+        }
+
+        async function handleFiles(files) {
+            if (files.length === 0) return;
+            const file = files[0];
+
+            if (file.type !== 'image/png') {
+                showMessage("PNG形式の画像のみ使用可能です。", true);
+                return;
+            }
+
+            if (file.size > 2 * 1024 * 1024) {
+                showMessage("ファイルサイズは2MBまでです。", true);
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                selectedFileArrayBuffer = e.target.result;
+                imagePreview.src = URL.createObjectURL(file);
+                fileNameDisp.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+                fileStatus.classList.add('hidden');
+                previewContainer.classList.remove('hidden');
+                showMessage("画像の読み込みに成功しました。鍵として準備完了です。");
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- Crypto Logic ---
+
+        // Derive key from image using SHA-256
+        async function deriveKeyFromImage(arrayBuffer) {
+            // Hash the entire binary to create a stable 256-bit key
+            const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+            return await crypto.subtle.importKey(
+                'raw',
+                hashBuffer,
+                { name: 'AES-GCM' },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        }
+
+        // Encryption
+        document.getElementById('encryptBtn').onclick = async () => {
+            const text = document.getElementById('plainText').value;
+            if (!selectedFileArrayBuffer) return showMessage("鍵となる画像を選択してください。", true);
+            if (!text) return showMessage("暗号化する文字列を入力してください。", true);
+
+            try {
+                const key = await deriveKeyFromImage(selectedFileArrayBuffer);
+                const iv = crypto.getRandomValues(new Uint8Array(12)); // Initialization Vector
+                const encoded = new TextEncoder().encode(text);
+
+                const ciphertext = await crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv: iv },
+                    key,
+                    encoded
+                );
+
+                // Combine IV + Ciphertext into a single Base64 string
+                const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+                combined.set(iv, 0);
+                combined.set(new Uint8Array(ciphertext), iv.length);
+
+                const base64 = btoa(String.fromCharCode(...combined));
+                document.getElementById('cipherText').value = base64;
+                showMessage("暗号化が完了しました。");
+            } catch (err) {
+                console.error(err);
+                showMessage("暗号化中にエラーが発生しました。", true);
+            }
+        };
+
+        // Decryption
+        document.getElementById('decryptBtn').onclick = async () => {
+            const base64 = document.getElementById('cipherText').value;
+            if (!selectedFileArrayBuffer) return showMessage("鍵となる画像を選択してください。", true);
+            if (!base64) return showMessage("復号するデータを入力してください。", true);
+
+            try {
+                const combined = new Uint8Array(atob(base64).split("").map(c => c.charCodeAt(0)));
+                const iv = combined.slice(0, 12);
+                const data = combined.slice(12);
+
+                const key = await deriveKeyFromImage(selectedFileArrayBuffer);
+
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: iv },
+                    key,
+                    data
+                );
+
+                const decoded = new TextDecoder().decode(decrypted);
+                document.getElementById('plainText').value = decoded;
+                showMessage("復号に成功しました。");
+            } catch (err) {
+                console.error(err);
+                showMessage("復号に失敗しました。画像が異なるか、データが破損しています。", true);
+            }
+        };
+    </script>
+</body>
+</html>
